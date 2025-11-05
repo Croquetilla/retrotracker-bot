@@ -1,44 +1,94 @@
+// Cargar variables de entorno
 import 'dotenv/config';
+
+// Importar clases de Discord.js
 import { Client, Collection, GatewayIntentBits, Events } from 'discord.js';
+
+// Importar utilidades del sistema
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+// Resolver __dirname en módulos ESM
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-// Colección para guardar los comandos
+// Crear cliente de Discord con intenciones básicas
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds],
+});
+
+// Crear colección de comandos
 client.commands = new Collection();
 
-// Cargar los comandos desde /commands
-const commandsPath = path.resolve('./commands');
-const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
+// Función para cargar comandos dinámicamente
+async function loadCommands() {
+  try {
+    const commandsPath = path.join(__dirname, 'commands');
+    if (!fs.existsSync(commandsPath)) {
+      console.warn('⚠️ Carpeta /commands no encontrada.');
+      return;
+    }
 
-for (const file of commandFiles) {
-  const command = await import(`./commands/${file}`);
-  client.commands.set(command.data.name, command);
+    const commandFiles = fs
+      .readdirSync(commandsPath)
+      .filter(file => file.endsWith('.js') || file.endsWith('.mjs'));
+
+    for (const file of commandFiles) {
+      const filePath = path.join(commandsPath, file);
+      const commandModule = await import(`file://${filePath}`);
+
+      // Admite exportaciones de tipo ESM o CommonJS
+      const command = commandModule.default || commandModule;
+
+      if (command?.data?.name && typeof command.execute === 'function') {
+        client.commands.set(command.data.name, command);
+        console.log(`🟢 Comando cargado: ${command.data.name}`);
+      } else {
+        console.warn(`⚠️ El archivo ${file} no exporta correctamente (data/execute).`);
+      }
+    }
+  } catch (err) {
+    console.error('❌ Error cargando comandos:', err);
+  }
 }
 
-// Cuando el bot esté listo
-client.once(Events.ClientReady, c => {
-  console.log(`✅ Bot conectado como ${c.user.tag}`);
-});
+// Inicializar bot
+async function main() {
+  await loadCommands();
 
-// Cuando alguien use un Slash Command
-client.on(Events.InteractionCreate, async interaction => {
-  if (!interaction.isChatInputCommand()) return;
+  // Evento: el bot está listo
+  client.once(Events.ClientReady, c => {
+    console.log(`✅ Bot conectado como ${c.user.tag}`);
+  });
 
-  const command = client.commands.get(interaction.commandName);
-  if (!command) return;
+  // Evento: se ejecuta un Slash Command
+  client.on(Events.InteractionCreate, async interaction => {
+    if (!interaction.isChatInputCommand()) return;
 
+    const command = client.commands.get(interaction.commandName);
+    if (!command) return;
+
+    try {
+      await command.execute(interaction);
+    } catch (error) {
+      console.error('❌ Error ejecutando comando:', error);
+      if (!interaction.replied) {
+        await interaction.reply({
+          content: 'Hubo un error al ejecutar este comando.',
+          ephemeral: true,
+        });
+      }
+    }
+  });
+
+  // Iniciar sesión con el token
   try {
-    await command.execute(interaction);
-  } catch (error) {
-    console.error(error);
-    await interaction.reply({
-      content: 'Hubo un error al ejecutar este comando.',
-      ephemeral: true
-    });
+    await client.login(process.env.TOKEN);
+  } catch (err) {
+    console.error('❌ Error iniciando sesión en Discord:', err);
   }
-});
+}
 
-// Conectar el bot
-client.login(process.env.TOKEN);
+// Ejecutar el bot
+main();
