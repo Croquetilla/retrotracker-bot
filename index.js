@@ -8,6 +8,7 @@ import { Client, Collection, GatewayIntentBits, Events } from 'discord.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { testDB, pool } from './db.mjs';
 
 // Resolver __dirname en módulos ESM
 const __filename = fileURLToPath(import.meta.url);
@@ -54,7 +55,8 @@ async function loadCommands() {
 }
 
 // Inicializar bot
-async function main() {
+async function main() 
+  await testDB();{
   await loadCommands();
 
   // Evento: el bot está listo
