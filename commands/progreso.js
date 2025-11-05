@@ -1,5 +1,5 @@
 import { SlashCommandBuilder } from 'discord.js';
-import { pool } from '../db.mjs';
+import { pool } from '../db.js';
 
 export const data = new SlashCommandBuilder()
   .setName('progreso')
