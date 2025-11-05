@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { Client, Collection, GatewayIntentBits, Events } from 'discord.js';
-import { testDB, pool } from './db.mjs';
+import { testDB, pool } from './db.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
