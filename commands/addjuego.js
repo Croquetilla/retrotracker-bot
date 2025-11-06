@@ -9,6 +9,7 @@ import { pool } from '../db.js';
 
 const SHEET_URL = process.env.SHEET_URL;
 
+// 🧠 Lee el CSV de Google Sheets y lo convierte en objetos
 async function getSheetData() {
   if (!SHEET_URL) return [];
   try {
@@ -22,7 +23,7 @@ async function getSheetData() {
       return obj;
     });
   } catch (e) {
-    console.error('Error leyendo la hoja:', e);
+    console.error('❌ Error leyendo la hoja:', e);
     return [];
   }
 }
@@ -51,21 +52,32 @@ export async function execute(interaction) {
   const jugador = interaction.user.username;
 
   try {
-    // 🔍 Buscar en la hoja si hay coincidencia con el título
+    // 🧾 Buscar en la hoja de cálculo
     const sheet = await getSheetData();
-    const match = sheet.find(row => row.título?.toLowerCase() === titulo.toLowerCase() || row.titulo?.toLowerCase() === titulo.toLowerCase());
+    const match = sheet.find(row =>
+      (row.título || row.titulo || '').toLowerCase() === titulo.toLowerCase()
+    );
+
+    let autoCompleted = false;
 
     if (match) {
-      anio = anio ?? parseInt(match['año'] || match['anio'] || '') || null;
-      plataforma = plataforma ?? match['plataforma'] || null;
-      ambientacion = ambientacion ?? match['ambientacion'] || match['género'] || null;
-      retroarch_url = retroarch_url ?? match['retroarchurl'] || match['retroarch_url'] || null;
-      imagen_url = imagen_url ?? match['imagen'] || match['imagen_url'] || null;
+      // Si hay coincidencia, rellenamos automáticamente los campos vacíos
+      const getVal = keys => keys.map(k => match[k]).find(v => v) || null;
+
+      anio = anio ?? parseInt(getVal(['año', 'anio'])) || null;
+      plataforma = plataforma ?? getVal(['plataforma', 'consola', 'sistema']);
+      ambientacion = ambientacion ?? getVal(['ambientacion', 'género', 'genero']);
+      retroarch_url = retroarch_url ?? getVal(['retroarch_url', 'retroarchurl', 'url']);
+      imagen_url = imagen_url ?? getVal(['imagen', 'imagen_url', 'portada']);
+      autoCompleted = true;
     }
 
-    // 🔹 Buscar si el juego existe globalmente
+    // 🗃️ Buscar o crear el juego global
     let juego_id;
-    const existingGame = await pool.query(`SELECT id FROM juegos WHERE LOWER(titulo) = LOWER($1)`, [titulo]);
+    const existingGame = await pool.query(
+      `SELECT id FROM juegos WHERE LOWER(titulo) = LOWER($1)`,
+      [titulo]
+    );
 
     if (existingGame.rowCount === 0) {
       const insertGame = await pool.query(
@@ -79,7 +91,7 @@ export async function execute(interaction) {
       juego_id = existingGame.rows[0].id;
     }
 
-    // 🔸 Comprobar si el jugador ya lo tiene
+    // 🧍‍♂️ Verificar si el jugador ya tiene ese juego
     const checkProgress = await pool.query(
       `SELECT * FROM progresos_usuario WHERE jugador = $1 AND juego_id = $2`,
       [jugador, juego_id]
@@ -87,30 +99,38 @@ export async function execute(interaction) {
 
     if (checkProgress.rowCount > 0) {
       const existing = checkProgress.rows[0];
+
       const embed = new EmbedBuilder()
         .setColor(0xffd700)
         .setTitle(`⚠️ Ya tienes vinculado "${titulo}"`)
-        .setDescription('¿Quieres actualizar tus notas o tu usuario de RA?')
+        .setDescription('¿Quieres actualizar tus notas o tu usuario RA?')
         .addFields(
           { name: '🕹️ Plataforma', value: plataforma || 'N/A', inline: true },
           { name: '📈 Progreso', value: `${existing.progreso ?? 0}%`, inline: true }
         );
 
       const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('confirm_update').setLabel('✅ Actualizar').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId('cancel_update').setLabel('❌ Cancelar').setStyle(ButtonStyle.Danger)
+        new ButtonBuilder()
+          .setCustomId('confirm_update')
+          .setLabel('✅ Actualizar')
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId('cancel_update')
+          .setLabel('❌ Cancelar')
+          .setStyle(ButtonStyle.Danger)
       );
 
       await interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
 
       const collector = interaction.channel.createMessageComponentCollector({ time: 15000 });
       collector.on('collect', async i => {
-        if (i.user.id !== interaction.user.id) {
+        if (i.user.id !== interaction.user.id)
           return i.reply({ content: 'No puedes responder a esta acción.', ephemeral: true });
-        }
+
         if (i.customId === 'confirm_update') {
           await pool.query(
-            `UPDATE progresos_usuario SET notas = $1, ra_user = $2, ultima_actualizacion = NOW()
+            `UPDATE progresos_usuario
+             SET notas = $1, ra_user = $2, ultima_actualizacion = NOW()
              WHERE jugador = $3 AND juego_id = $4`,
             [notas, ra_user, jugador, juego_id]
           );
@@ -124,14 +144,14 @@ export async function execute(interaction) {
       return;
     }
 
-    // 🔹 Si no existe vínculo, crearlo
+    // 🆕 Crear nuevo vínculo
     await pool.query(
       `INSERT INTO progresos_usuario (jugador, juego_id, ra_user, notas)
        VALUES ($1, $2, $3, $4)`,
       [jugador, juego_id, ra_user, notas]
     );
 
-    // ✅ Embed final
+    // ✅ Embed de confirmación
     const embed = new EmbedBuilder()
       .setColor(0x00bfff)
       .setTitle(`🎮 ${titulo}`)
@@ -144,13 +164,22 @@ export async function execute(interaction) {
       .setFooter({ text: 'RetroTracker Bot • Base global' })
       .setTimestamp();
 
-    if (retroarch_url) embed.addFields({ name: '🔗 RetroArch', value: `[Abrir juego](${retroarch_url})` });
+    if (retroarch_url)
+      embed.addFields({ name: '🔗 RetroArch', value: `[Abrir juego](${retroarch_url})` });
     if (imagen_url) embed.setThumbnail(imagen_url);
     if (notas) embed.addFields({ name: '📝 Notas', value: notas });
+    if (autoCompleted)
+      embed.addFields({
+        name: '📋 Datos completados automáticamente',
+        value: 'Los datos del juego se han rellenado desde la hoja de Google Sheets.',
+      });
 
     await interaction.reply({ embeds: [embed] });
   } catch (err) {
     console.error('❌ Error en /addjuego:', err);
-    await interaction.reply({ content: 'Hubo un error al añadir o actualizar el juego.', ephemeral: true });
+    await interaction.reply({
+      content: 'Hubo un error al añadir o actualizar el juego.',
+      ephemeral: true,
+    });
   }
 }
