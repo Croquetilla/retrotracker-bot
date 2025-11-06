@@ -1,5 +1,5 @@
 import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
-import { pool } from '../db.mjs';
+import { pool } from '../db.js';
 
 export const data = new SlashCommandBuilder()
   .setName('juego')
@@ -9,24 +9,31 @@ export const data = new SlashCommandBuilder()
       .setName('titulo')
       .setDescription('Nombre del juego que quieres consultar')
       .setRequired(true)
+  )
+  .addStringOption(opt =>
+    opt
+      .setName('jugador')
+      .setDescription('Nombre del jugador (opcional)')
+      .setRequired(false)
   );
 
 export async function execute(interaction) {
   const titulo = interaction.options.getString('titulo');
-  const jugador = interaction.user.username;
+  const jugadorConsulta =
+    interaction.options.getString('jugador') || interaction.user.username;
 
   try {
     const result = await pool.query(
       `SELECT * FROM juegos
        WHERE LOWER(titulo) = LOWER($1)
-       AND jugador = $2
+       AND LOWER(jugador) = LOWER($2)
        LIMIT 1`,
-      [titulo, jugador]
+      [titulo, jugadorConsulta]
     );
 
     if (result.rowCount === 0) {
       return interaction.reply({
-        content: `⚠️ No encontré ningún juego llamado **${titulo}** registrado por ti.`,
+        content: `⚠️ No encontré ningún juego llamado **${titulo}** registrado por **${jugadorConsulta}**.`,
         ephemeral: true
       });
     }
@@ -37,9 +44,17 @@ export async function execute(interaction) {
       timeStyle: 'short'
     });
 
-    // Color dinámico según progreso
-    const color =
-      juego.progreso >= 80 ? 0x00ff7f : juego.progreso >= 50 ? 0xffd700 : 0xff4500;
+    // 🎨 Color dinámico según progreso
+    let color;
+    if (juego.progreso === null || isNaN(juego.progreso)) {
+      color = 0x808080; // gris si no hay progreso
+    } else if (juego.progreso >= 80) {
+      color = 0x00ff7f; // verde
+    } else if (juego.progreso >= 50) {
+      color = 0xffd700; // amarillo
+    } else {
+      color = 0xff4500; // rojo
+    }
 
     const embed = new EmbedBuilder()
       .setColor(color)
@@ -50,12 +65,8 @@ export async function execute(interaction) {
       .addFields(
         { name: '🕹️ Plataforma', value: juego.plataforma || 'N/A', inline: true },
         { name: '🌍 Ambientación', value: juego.ambientacion || 'N/A', inline: true },
-        { name: '📈 Progreso', value: `${juego.progreso}%`, inline: true },
-        {
-          name: '🕓 Última actualización',
-          value: fecha,
-          inline: true
-        }
+        { name: '📈 Progreso', value: `${juego.progreso ?? 0}%`, inline: true },
+        { name: '🕓 Última actualización', value: fecha, inline: false }
       )
       .setFooter({
         text: 'RetroTracker Bot • NeonDB',
@@ -63,14 +74,14 @@ export async function execute(interaction) {
       })
       .setTimestamp();
 
-    // Si tiene URL, la añadimos como enlace
+    // Añadir URL de RetroArch si existe
     if (juego.retroarch_url)
       embed.addFields({
         name: '🔗 RetroArch',
         value: `[Abrir juego](${juego.retroarch_url})`
       });
 
-    // Si hay notas
+    // Añadir notas si existen
     if (juego.notas)
       embed.addFields({ name: '📝 Notas', value: juego.notas });
 
