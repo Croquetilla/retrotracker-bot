@@ -3,7 +3,7 @@ import { pool } from '../db.js';
 
 export const data = new SlashCommandBuilder()
   .setName('buscarjuego')
-  .setDescription('Busca juegos por palabra clave en tus registros.')
+  .setDescription('Busca juegos por palabra clave en tus registros o los de otro jugador.')
   .addStringOption(opt =>
     opt
       .setName('palabra')
@@ -23,12 +23,15 @@ export async function execute(interaction) {
     interaction.options.getString('jugador') || interaction.user.username;
 
   try {
+    // 1️⃣ Buscar coincidencias en la base relacional
     const result = await pool.query(
-      `SELECT titulo, plataforma, progreso, ultima_actualizacion, imagen_url
-       FROM juegos
-       WHERE LOWER(titulo) ILIKE LOWER($1)
-       AND LOWER(jugador) = LOWER($2)
-       ORDER BY ultima_actualizacion DESC
+      `SELECT j.titulo, j.plataforma, j.imagen_url, 
+              p.progreso, p.progreso_retroachievements, p.ultima_actualizacion
+       FROM progresos_usuario p
+       JOIN juegos j ON j.id = p.juego_id
+       WHERE LOWER(j.titulo) ILIKE LOWER($1)
+       AND LOWER(p.jugador) = LOWER($2)
+       ORDER BY p.ultima_actualizacion DESC
        LIMIT 10`,
       [`%${palabra}%`, jugadorConsulta]
     );
@@ -40,32 +43,40 @@ export async function execute(interaction) {
       });
     }
 
+    // 2️⃣ Crear el embed de resultados
     const embed = new EmbedBuilder()
       .setColor(0x00bfff)
-      .setTitle(`🔍 Resultados de búsqueda para “${palabra}”`)
-      .setDescription(`Mostrando los ${result.rowCount} juegos más recientes de **${jugadorConsulta}**.`)
+      .setTitle(`🔍 Resultados para “${palabra}”`)
+      .setDescription(
+        `Mostrando los ${result.rowCount} juegos más recientes de **${jugadorConsulta}**.`
+      )
       .setFooter({
         text: 'RetroTracker Bot • NeonDB',
         iconURL: interaction.user.displayAvatarURL()
       })
       .setTimestamp();
 
+    // 3️⃣ Añadir los juegos encontrados
     for (const juego of result.rows) {
       const fecha = new Date(juego.ultima_actualizacion).toLocaleString('es-ES', {
         dateStyle: 'short',
         timeStyle: 'short'
       });
 
+      let progresoTexto = `📈 ${juego.progreso ?? 0}%`;
+      if (juego.progreso_retroachievements !== null)
+        progresoTexto += ` • 🏆 RA: ${juego.progreso_retroachievements}%`;
+
       embed.addFields({
         name: `🎮 ${juego.titulo}`,
-        value: `📈 ${juego.progreso ?? 0}% • 🕹️ ${
+        value: `${progresoTexto}\n🕹️ ${
           juego.plataforma ?? 'N/A'
-        } • 🕓 ${fecha}`,
+        }\n🕓 ${fecha}`,
         inline: false
       });
     }
 
-    // Mostrar miniatura si hay una sola coincidencia con imagen
+    // 4️⃣ Si solo hay un resultado con imagen, mostrarla como miniatura
     if (result.rowCount === 1 && result.rows[0].imagen_url) {
       embed.setThumbnail(result.rows[0].imagen_url);
     }
