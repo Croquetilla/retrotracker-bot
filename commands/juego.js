@@ -1,5 +1,5 @@
 import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
-import { pool } from '../db.js';
+import { pool } from '../db.mjs';
 
 export const data = new SlashCommandBuilder()
   .setName('juego')
@@ -59,9 +59,7 @@ export async function execute(interaction) {
     const embed = new EmbedBuilder()
       .setColor(color)
       .setTitle(`🎮 ${juego.titulo}`)
-      .setDescription(
-        `Información del juego registrado por **${juego.jugador}**`
-      )
+      .setDescription(`Información del juego registrado por **${juego.jugador}**`)
       .addFields(
         { name: '🕹️ Plataforma', value: juego.plataforma || 'N/A', inline: true },
         { name: '🌍 Ambientación', value: juego.ambientacion || 'N/A', inline: true },
@@ -74,16 +72,25 @@ export async function execute(interaction) {
       })
       .setTimestamp();
 
-    // Añadir URL de RetroArch si existe
+    // 🔗 Añadir URL de RetroArch si existe
     if (juego.retroarch_url)
       embed.addFields({
         name: '🔗 RetroArch',
         value: `[Abrir juego](${juego.retroarch_url})`
       });
 
-    // Añadir notas si existen
+    // 📝 Añadir notas si existen
     if (juego.notas)
       embed.addFields({ name: '📝 Notas', value: juego.notas });
+
+    // 🖼️ Añadir imagen si existe en la base de datos
+    if (juego.imagen_url) {
+      // miniatura pequeña (arriba a la derecha)
+      embed.setThumbnail(juego.imagen_url);
+
+      // o imagen grande al final del embed:
+      // embed.setImage(juego.imagen_url);
+    }
 
     await interaction.reply({ embeds: [embed] });
   } catch (err) {
