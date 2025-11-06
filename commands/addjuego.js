@@ -64,7 +64,7 @@ export async function execute(interaction) {
       // Si hay coincidencia, rellenamos automáticamente los campos vacíos
       const getVal = keys => keys.map(k => match[k]).find(v => v) || null;
 
-      anio = anio ?? parseInt(getVal(['año', 'anio'])) || null;
+      anio = (anio ?? parseInt(getVal(['año', 'anio']))) || null;
       plataforma = plataforma ?? getVal(['plataforma', 'consola', 'sistema']);
       ambientacion = ambientacion ?? getVal(['ambientacion', 'género', 'genero']);
       retroarch_url = retroarch_url ?? getVal(['retroarch_url', 'retroarchurl', 'url']);
